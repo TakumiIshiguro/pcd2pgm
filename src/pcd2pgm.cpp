@@ -1,149 +1,275 @@
-#include <iostream>
-#include <boost/filesystem.hpp>
-#include <boost/program_options.hpp>
-
-#include <rclcpp/rclcpp.hpp>
-
-#include <opencv2/opencv.hpp>
+#include "pcd2pgm/pcd2pgm.hpp"
 
 #include <pcl/io/pcd_io.h>
 #include <pcl/point_types.h>
-#include <pcl/point_cloud.h>
+#include <pcl/filters/voxel_grid.h>
+#include <pcl/segmentation/progressive_morphological_filter.h>
+#include <pcl/filters/extract_indices.h>
+#include <pcl/filters/statistical_outlier_removal.h>
+#include <pcl/search/kdtree.h>
 
-class Pcd2Pgm : public rclcpp::Node
+#include <filesystem>
+#include <sstream>
+#include <fstream>
+#include <limits>
+
+namespace pcd2pgm
 {
-public:
-  Pcd2Pgm() : Node("pcd2pgm")
-  {
-    // Parameters
-    this->declare_parameter("resolution", 0.1);
-    this->declare_parameter("min_points_in_pix", 2);
-    this->declare_parameter("max_points_in_pix", 5);
-    this->declare_parameter("min_height", 0.5);
-    this->declare_parameter("max_height", 1.0);
-    this->declare_parameter("input_pcd", "");
-    this->declare_parameter("dest_directory", "");
-    this->declare_parameter("output_pgm_name", "");
 
-    this->get_parameter("resolution", resolution);
-    this->get_parameter("min_points_in_pix", min_points_in_pix);
-    this->get_parameter("max_points_in_pix", max_points_in_pix);
-    this->get_parameter("min_height", min_height);
-    this->get_parameter("max_height", max_height);
-    this->get_parameter("input_pcd", input_pcd);
-    this->get_parameter("dest_directory", dest_directory);
-    this->get_parameter("output_pgm_name", output_pgm_name);
-
-    // Load PCD file
-    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_xyz(new pcl::PointCloud<pcl::PointXYZ>);
-    if (pcl::io::loadPCDFile(input_pcd, *cloud_xyz) == -1)
-    {
-      RCLCPP_ERROR(this->get_logger(), "Couldn't read the PCD file");
-      return;
-    }
-
-    RCLCPP_INFO(this->get_logger(), "Initial point cloud size: %lu", cloud_xyz->points.size());
-
-    // Determine map size and origin
-    double x_min = std::numeric_limits<double>::max();
-    double x_max = std::numeric_limits<double>::lowest();
-    double y_min = std::numeric_limits<double>::max();
-    double y_max = std::numeric_limits<double>::lowest();
-
-    for (const auto& point : *cloud_xyz)
-    {
-      if (point.z >= min_height && point.z <= max_height) {
-        x_min = std::min(x_min, (double)point.x);
-        x_max = std::max(x_max, (double)point.x);
-        y_min = std::min(y_min, (double)point.y);
-        y_max = std::max(y_max, (double)point.y);
-      }
-    }
-
-    map_width = std::ceil((x_max - x_min) / resolution);
-    map_height = std::ceil((y_max - y_min) / resolution);
-
-    RCLCPP_INFO(this->get_logger(), "Map size: width = %d, height = %d", map_width, map_height);
-
-    // Create 2D map
-    cv::Mat map = generate(*cloud_xyz, x_min, y_min);
-
-    // Flip the map to correct the orientation
-    cv::flip(map, map, 0);  // 0 means flipping around the x-axis (i.e., vertical flip)
-
-    if (!boost::filesystem::exists(dest_directory))
-    {
-      boost::filesystem::create_directories(dest_directory);
-    }
-
-    // Save as PGM file
-    std::string pgm_file_path = dest_directory + "/" + output_pgm_name + ".pgm";
-    cv::imwrite(pgm_file_path, map);
-
-    // Save the YAML file with corrected origin
-    std::string yaml_file_path = dest_directory + "/" + output_pgm_name + ".yaml";
-    std::ofstream ofs(yaml_file_path);
-    ofs << "image: " << output_pgm_name << ".pgm" << std::endl;
-    ofs << "resolution: " << resolution << std::endl;
-    ofs << "origin: [" << x_min << ", " << (y_max - map_height * resolution) << ", 0.0]" << std::endl;
-    ofs << "occupied_thresh: 0.5" << std::endl;
-    ofs << "free_thresh: 0.2" << std::endl;
-    ofs << "negate: 0" << std::endl;
-
-    // Log the successful save
-    RCLCPP_INFO(this->get_logger(), "Map saved as PGM file: %s", pgm_file_path.c_str());
-    RCLCPP_INFO(this->get_logger(), "YAML file saved: %s", yaml_file_path.c_str());
-  }
-
-private:
-  double resolution;
-  int map_width;
-  int map_height;
-  int min_points_in_pix;
-  int max_points_in_pix;
-  double min_height;
-  double max_height;
-  std::string input_pcd;
-  std::string dest_directory;
-  std::string output_pgm_name;
-
-  cv::Mat generate(const pcl::PointCloud<pcl::PointXYZ>& cloud, double x_min, double y_min) const
-  {
-    cv::Mat map(map_height, map_width, CV_32SC1, cv::Scalar::all(0));
-    double m2pix = 1.0 / resolution;
-
-    for (const auto& point : cloud)
-    {
-      if (point.z < min_height || point.z > max_height)
-      {
-        continue;
-      }
-
-      int x = std::round((point.x - x_min) * m2pix);
-      int y = std::round((point.y - y_min) * m2pix);
-
-      if (x < 0 || x >= map_width || y < 0 || y >= map_height)
-      {
-        continue;
-      }
-
-      map.at<int>(y, x)++;
-    }
-
-    map -= min_points_in_pix;
-    map = cv::max(map, 0);
-    map.convertTo(map, CV_8UC1, -255.0 / (max_points_in_pix - min_points_in_pix), 255);
-
-    return map;
-  }
-};
-
-int main(int argc, char** argv)
+Pcd2Pgm::Pcd2Pgm(const rclcpp::NodeOptions & options) : Node("pcd2pgm", options)
 {
-  rclcpp::init(argc, argv);
-  auto node = std::make_shared<Pcd2Pgm>();
-  rclcpp::spin_some(node);
-  rclcpp::shutdown();
-  return 0;
+    // Common Parameters
+    declare_parameter<std::string>("pcd_path", "");
+    declare_parameter<std::string>("output_dir", "");
+    declare_parameter<std::string>("save_map_name", "map");
+    declare_parameter<double>("resolution", 0.10);
+    declare_parameter<int>("min_points_per_cell", 1);
+    declare_parameter<double>("h_min", 0.10);
+    declare_parameter<double>("h_max", 2.00);
+    declare_parameter<float>("downsample_leaf_size", 0.10);
+
+    get_parameter("pcd_path", pcd_path_);
+    get_parameter("output_dir", output_dir_);
+    get_parameter("save_map_name", save_map_name_);
+    get_parameter("resolution", resolution_);
+    get_parameter("min_points_per_cell",min_points_per_cell_);
+    get_parameter("h_min", h_min_);
+    get_parameter("h_max", h_max_);
+    get_parameter("downsample_leaf_size", downsample_leaf_size_);
+
+
+    // PMF parameters
+    declare_parameter<int>("max_window_size", 20);
+    declare_parameter<double>("slope", 1.00);
+    declare_parameter<double>("initial_distance", 0.50);
+    declare_parameter<double>("max_distance", 3.00);
+    get_parameter("max_window_size", max_window_size_);
+    get_parameter("slope", slope_);
+    get_parameter("initial_distance", initial_distance_);
+    get_parameter("max_distance", max_distance_);
+
+    // SOR parameters
+    declare_parameter<int>("mean_k", 20);
+    declare_parameter<double>("stddev_mul", 1.00);
+    get_parameter("mean_k", mean_k_);
+    get_parameter("stddev_mul", stddev_mul_);
+
+    // Debug
+    declare_parameter<bool>("save_all_cloud", false);
+    get_parameter("save_all_cloud", save_all_cloud_);
+
+
+    std::filesystem::create_directories(output_dir_);
+
+    if (pcd_path_.empty()) {
+        RCLCPP_ERROR(get_logger(), "Parameter 'pcd_path' is empty.");
+        rclcpp::shutdown();
+        return;
+    }
+
+    process();
+    rclcpp::shutdown();
 }
 
+void Pcd2Pgm::process()
+{
+    // Load PCD file
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>());
+    if (pcl::io::loadPCDFile<pcl::PointXYZ>(pcd_path_, *cloud) != 0 || cloud->empty()) {
+        RCLCPP_ERROR(get_logger(), "Failed to read PCD: %s", pcd_path_.c_str());
+        return;
+    }
+    RCLCPP_INFO(get_logger(), "Loaded PCD: %zu points", cloud->size());
+
+
+    // Downsample
+    pcl::VoxelGrid<pcl::PointXYZ> vg;
+    vg.setInputCloud(cloud);
+    vg.setLeafSize(downsample_leaf_size_, downsample_leaf_size_, downsample_leaf_size_);
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_downsample(new pcl::PointCloud<pcl::PointXYZ>());
+    vg.filter(*cloud_downsample);
+    RCLCPP_INFO(get_logger(), "Downsample Point Cloud: %zu points", cloud_downsample->size());
+    
+
+    // Ground Segmentation (PMF)
+    pcl::PointIndicesPtr ground_idx(new pcl::PointIndices);
+    pcl::ProgressiveMorphologicalFilter<pcl::PointXYZ> pmf;
+    pmf.setInputCloud(cloud_downsample);
+    pmf.setMaxWindowSize(max_window_size_);
+    pmf.setSlope(slope_);
+    pmf.setInitialDistance(initial_distance_);
+    pmf.setMaxDistance(max_distance_);
+    pmf.extract(ground_idx->indices);
+
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_ground(new pcl::PointCloud<pcl::PointXYZ>());
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_nonground(new pcl::PointCloud<pcl::PointXYZ>());
+    pcl::ExtractIndices<pcl::PointXYZ> ex;
+    ex.setInputCloud(cloud_downsample);
+    ex.setIndices(ground_idx);
+    ex.setNegative(false);
+    ex.filter(*cloud_ground);
+    ex.setNegative(true);
+    ex.filter(*cloud_nonground);
+
+    // SOR
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_nonground_sor(new pcl::PointCloud<pcl::PointXYZ>());
+    pcl::StatisticalOutlierRemoval<pcl::PointXYZ> sor;
+    sor.setInputCloud(cloud_nonground);
+    sor.setMeanK(mean_k_);
+    sor.setStddevMulThresh(stddev_mul_);
+    sor.setNegative(false);
+    sor.filter(*cloud_nonground_sor);
+    RCLCPP_INFO(get_logger(), "Ground: %zu, Non ground: %zu", cloud_ground->size(), cloud_nonground_sor->size());
+    if (cloud_ground->empty()) {
+        RCLCPP_ERROR(get_logger(), "No ground points detected. Adjust PMF params.");
+        return;
+    }
+
+
+    // Obstacle Cloud Extraction
+    pcl::search::KdTree<pcl::PointXYZ>::Ptr kdtree(new pcl::search::KdTree<pcl::PointXYZ>());
+    kdtree->setInputCloud(cloud_ground);
+
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_obstacles(new pcl::PointCloud<pcl::PointXYZ>());
+    cloud_obstacles->reserve(cloud_nonground_sor->size());
+
+    std::vector<int> nn_idx; std::vector<float> nn_dist;
+    const int K = 12;
+
+    for (const auto &p : cloud_nonground_sor->points) {
+        if (kdtree->nearestKSearch(p, K, nn_idx, nn_dist) <= 0) continue;
+        double gz = 0.0; int cnt = 0;
+      for (int idx : nn_idx) {
+        if (idx < 0 || static_cast<size_t>(idx) >= cloud_ground->size()) continue;
+        gz += cloud_ground->points[idx].z; cnt++;
+      }
+      if (cnt == 0) continue;
+      gz /= static_cast<double>(cnt);
+
+      double dz = static_cast<double>(p.z) - gz;
+      if (dz >= h_min_ && dz <= h_max_) cloud_obstacles->push_back(p);
+    }
+    RCLCPP_INFO(get_logger(), "Obstacle: %zu", cloud_obstacles->size());
+
+
+    // Convert Obstacle Cloud to PGM and create yaml
+    savePgmYaml(cloud_obstacles);
+    
+
+    // Debug
+    if (save_all_cloud_) {
+        std::ostringstream oss_ds;    
+        oss_ds << output_dir_ << "/cloud_downsample.pcd";
+        pcl::io::savePCDFileBinary(oss_ds.str(), *cloud_downsample);
+        RCLCPP_DEBUG(get_logger(), "Saved %zu points to %s", cloud_downsample->size(), oss_ds.str().c_str());
+
+        std::ostringstream oss_g;
+        oss_g << output_dir_ << "/cloud_ground.pcd";
+        pcl::io::savePCDFileBinary(oss_g.str(), *cloud_ground);
+        RCLCPP_DEBUG(get_logger(), "Saved %zu points to %s", cloud_ground->size(), oss_g.str().c_str());
+
+        std::ostringstream oss_ng;
+        oss_ng << output_dir_ << "/cloud_nonground.pcd";
+        pcl::io::savePCDFileBinary(oss_ng.str(), *cloud_nonground_sor);
+        RCLCPP_DEBUG(get_logger(), "Saved %zu points to %s", cloud_nonground_sor->size(), oss_ng.str().c_str());
+
+        std::ostringstream oss_o;    
+        oss_o << output_dir_ << "/cloud_obstacles.pcd";
+        pcl::io::savePCDFileBinary(oss_o.str(), *cloud_obstacles);
+        RCLCPP_DEBUG(get_logger(), "Saved %zu points to %s", cloud_obstacles->size(), oss_o.str().c_str());
+    }
+
+    return;
+}
+
+void Pcd2Pgm::savePgmYaml(const pcl::PointCloud<pcl::PointXYZ>::ConstPtr& cloud_obstacles)
+{
+    namespace fs = std::filesystem;
+    if (!cloud_obstacles || cloud_obstacles->empty()) {
+        RCLCPP_WARN(get_logger(), "No obstacle points to save.");
+        return;
+    }
+
+    std::error_code ec;
+    fs::create_directories(output_dir_, ec);
+    if (ec) {
+        RCLCPP_ERROR(get_logger(), "Failed to create output_dir '%s': %s", output_dir_.c_str(), ec.message().c_str());
+        return;
+    }
+
+    double min_x =  std::numeric_limits<double>::infinity();
+    double min_y =  std::numeric_limits<double>::infinity();
+    double max_x = -std::numeric_limits<double>::infinity();
+    double max_y = -std::numeric_limits<double>::infinity();
+
+    for (const auto& p : cloud_obstacles->points) {
+        min_x = std::min(min_x, (double)p.x);
+        min_y = std::min(min_y, (double)p.y);
+        max_x = std::max(max_x, (double)p.x);
+        max_y = std::max(max_y, (double)p.y);
+    }
+
+    if (!std::isfinite(min_x) || !std::isfinite(min_y) ||
+        !std::isfinite(max_x) || !std::isfinite(max_y)) {
+        RCLCPP_ERROR(get_logger(), "Invalid bbox for obstacles.");
+        return;
+    }
+
+    const int width  = std::max(1, (int)std::ceil((max_x - min_x) / resolution_));
+    const int height = std::max(1, (int)std::ceil((max_y - min_y) / resolution_));
+
+    std::vector<uint16_t> counters(width * height, 0);
+
+    auto xy_to_index = [&](double x, double y)->int {
+        int ix = (int)std::floor((x - min_x) / resolution_);
+        int iy = (int)std::floor((y - min_y) / resolution_);
+        if (ix < 0 || ix >= width || iy < 0 || iy >= height) return -1;
+        return iy * width + ix;
+    };
+
+    for (const auto& p : cloud_obstacles->points) {
+        int i = xy_to_index(p.x, p.y);
+        if (i >= 0) counters[i] += 1;
+    }
+
+    const std::string pgm = (fs::path(output_dir_) / (save_map_name_ + ".pgm")).string();
+    std::ofstream ofs(pgm, std::ios::binary);
+    if (!ofs) {
+        RCLCPP_ERROR(get_logger(), "Failed to open PGM: %s", pgm.c_str());
+        return;
+    }
+
+    ofs << "P5\n" << width << " " << height << "\n255\n";
+    for (int y = height - 1; y >= 0; --y) {
+        for (int x = 0; x < width; ++x) {
+        int i = y * width + x;
+        uint8_t pix = 254;
+        if (counters[i] >= (uint16_t)min_points_per_cell_) pix = 0;
+        ofs.write(reinterpret_cast<char*>(&pix), 1);
+        }
+    }
+    ofs.close();
+
+    const std::string yaml = (fs::path(output_dir_) / (save_map_name_ + ".yaml")).string();
+    std::ofstream yfs(yaml);
+    if (!yfs) {
+        RCLCPP_ERROR(get_logger(), "Failed to open YAML: %s", yaml.c_str());
+        return;
+    }
+    yfs << "image: " << (save_map_name_ + ".pgm") << "\n";
+    yfs << "mode: trinary\n";
+    yfs << "resolution: " << resolution_ << "\n";
+    yfs << "origin: [" << min_x << ", " << min_y << ", 0.0]\n";
+    yfs << "negate: 0\n";
+    yfs << "occupied_thresh: 0.65\n";
+    yfs << "free_thresh: 0.196\n";
+    yfs.close();
+
+    RCLCPP_INFO(get_logger(), "Saved map: %s, %s (w=%d, h=%d, res=%.3f)",
+                pgm.c_str(), yaml.c_str(), width, height, resolution_);
+}
+
+}
+
+#include <rclcpp_components/register_node_macro.hpp>
+RCLCPP_COMPONENTS_REGISTER_NODE(pcd2pgm::Pcd2Pgm);

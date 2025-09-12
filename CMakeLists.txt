@@ -1,33 +1,53 @@
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.8)
 project(pcd2pgm)
 
-# Find dependencies
+if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  add_compile_options(-Wall -Wextra -Wpedantic)
+endif()
+
+# find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(rclcpp_components REQUIRED)
 find_package(PCL REQUIRED)
-find_package(OpenCV REQUIRED)
 
-# Add executable
-add_executable(pcd2pgm src/pcd2pgm.cpp)
+add_library(pcd2pgm SHARED
+  src/pcd2pgm.cpp
+)
 
-# Specify dependencies
+target_include_directories(pcd2pgm PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+
 ament_target_dependencies(pcd2pgm
-  rclcpp 
-  PCL
-  OpenCV
+  rclcpp
+  rclcpp_components
 )
 
-# Link libraries (not necessary if ament_target_dependencies is used correctly)
-target_link_libraries(pcd2pgm
-  ${PCL_LIBRARIES}
-  ${OpenCV_LIBRARIES}
+target_include_directories(pcd2pgm PUBLIC ${PCL_INCLUDE_DIRS})
+target_link_libraries(pcd2pgm ${PCL_LIBRARIES})
+
+
+rclcpp_components_register_node(pcd2pgm
+  PLUGIN "pcd2pgm::Pcd2Pgm"
+  EXECUTABLE pcd2pgm_node
 )
 
-# Install targets
-install(TARGETS pcd2pgm
-  DESTINATION lib/${PROJECT_NAME})
+install(
+  TARGETS pcd2pgm pcd2pgm_node
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION lib/${PROJECT_NAME}
+)
 
-install(DIRECTORY launch config map
+install(DIRECTORY include/
+  DESTINATION include
+)
+
+install(
+  DIRECTORY launch config
   DESTINATION share/${PROJECT_NAME}
 )
+
 ament_package()
