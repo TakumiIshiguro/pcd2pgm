@@ -269,7 +269,7 @@ void Pcd2Pgm::savePgmYaml(const pcl::PointCloud<pcl::PointXYZ>::ConstPtr& cloud_
                 pgm.c_str(), yaml.c_str(), width, height, resolution_);
 }
 
-}
+}   // namespace pcd2pgm
 
 #include <rclcpp_components/register_node_macro.hpp>
 RCLCPP_COMPONENTS_REGISTER_NODE(pcd2pgm::Pcd2Pgm);
