@@ -29,8 +29,7 @@ This package reads a PCD file, filters and segments it, extracts obstacles relat
 
 ## Development Environment
 - Ubuntu 22.04 (Jammy Jellyfish)
-- ROS 2 Humble Hawksbill  
-  (Jazzy may also work; enable the CI workflows above to use the badges.)
+- ROS 2 Humble Hawksbill
 
 ## Installation
 ```bash
