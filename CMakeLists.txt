@@ -50,4 +50,9 @@ install(
   DESTINATION share/${PROJECT_NAME}
 )
 
+install(
+  PROGRAMS scripts/pcd2pgm_gui.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 ament_package()

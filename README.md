@@ -88,6 +88,20 @@ pcd2pgm_node:
 - PGM is written **top-down** (image rows reversed) to match ROS map conventions.
 - Coordinate assumption: **Z is up**.
 
+## Height slicer GUI
+`h_min` / `h_max` (height above the local ground) can be tuned while visualizing the point cloud.
+
+1. Run `pcd2pgm_node` once with `save_all_cloud: true` to save `cloud_ground.pcd` / `cloud_nonground.pcd` to `output_dir`.
+2. Start the GUI (reads `config/config_pcd2pgm.yaml` by default):
+```bash
+ros2 run pcd2pgm pcd2pgm_gui.py [--config /path/to/config_pcd2pgm.yaml] [--cloud-dir /path/to/clouds]
+```
+- **h_min / h_max sliders**: points within the height band are shown colored by height above ground (ground in gray).
+- **Convert to PGM**: writes `output_dir/save_map_name.{pgm,yaml}` in the same way as the node (PMF is not rerun).
+- **Save params to config**: writes `h_min`, `h_max`, `resolution` and `save_map_name` back to the config file.
+
+Requires PyQt5, pyvista, pyvistaqt, open3d, scipy and matplotlib.
+
 ## How it works
 1. Load PCD  
 2. Downsample with `VoxelGrid`  

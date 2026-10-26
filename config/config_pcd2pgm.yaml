@@ -2,14 +2,15 @@ pcd2pgm_node:
   ros__parameters:
   
     # Common Parameters
-    pcd_path: "/home/kazuma/navigation_data/kandai/kandai.pcd"
-    output_dir: "output"
-    save_map_name: "kandai"
-    resolution: 0.1
+    pcd_path: "/home/takumi/ros2_ws/src/orne-box/orne_box_navigation_executor/config/maps/tsudanuma/tsudanuma.pcd"
+    output_dir: "/home/takumi/map/tsudanuma_pgm"
+    save_map_name: "tsudanuma"
+    resolution: 0.05
     min_points_per_cell: 1
     h_min: 0.10
     h_max: 1.50
-    downsample_leaf_size: 0.25
+    # tsudanuma.pcd (365 x 276 x 66 m) では 0.15 未満だと VoxelGrid の index が溢れて間引かれない
+    downsample_leaf_size: 0.15
 
     # PMF parameter
     max_window_size: 32
@@ -22,4 +23,5 @@ pcd2pgm_node:
     stddev_mul: 1.0
 
     # Debug
-    save_all_cloud: false
+    # true: 中間点群 (cloud_ground.pcd / cloud_nonground.pcd) を保存する。pcd2pgm_gui.py の入力に使う
+    save_all_cloud: true
