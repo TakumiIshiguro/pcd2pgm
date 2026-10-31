@@ -1,0 +1,27 @@
+pcd2pgm_node:
+  ros__parameters:
+  
+    # Common Parameters
+    pcd_path: "/home/takumi/maps/tskuba2026.pcd"
+    output_dir: "/home/takumi/maps/tsukuba2026_pgm"
+    save_map_name: "tsukuba2026"
+    resolution: 0.05
+    min_points_per_cell: 1
+    h_min: 0.10
+    h_max: 1.50
+    # tskuba2026.pcd (679 x 381 x 46 m) では 0.2 未満だと VoxelGrid の index が溢れて間引かれない
+    downsample_leaf_size: 0.2
+
+    # PMF parameter
+    max_window_size: 32
+    slope: 1.0
+    initial_distance: 0.3
+    max_distance: 2.5
+
+    # SOR parameter
+    mean_k: 20
+    stddev_mul: 1.0
+
+    # Debug
+    # true: 中間点群 (cloud_ground.pcd / cloud_nonground.pcd) を保存する。pcd2pgm_gui.py の入力に使う
+    save_all_cloud: true

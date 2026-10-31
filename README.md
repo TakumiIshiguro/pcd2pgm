@@ -96,6 +96,10 @@ pcd2pgm_node:
 ```bash
 ros2 run pcd2pgm pcd2pgm_gui.py [--config /path/to/config_pcd2pgm.yaml] [--cloud-dir /path/to/clouds]
 ```
+Steps 1 and 2 can be run at once (the GUI starts after `pcd2pgm_node` finishes, with `save_all_cloud` forced to true):
+```bash
+ros2 launch pcd2pgm pcd2pgm.launch.py gui:=true [pcd2pgm_config:=/path/to/config_pcd2pgm.yaml]
+```
 - **h_min / h_max sliders**: points within the height band are shown colored by height above ground (ground in gray).
 - **Convert to PGM**: writes `output_dir/save_map_name.{pgm,yaml}` in the same way as the node (PMF is not rerun).
 - **Save params to config**: writes `h_min`, `h_max`, `resolution` and `save_map_name` back to the config file.
